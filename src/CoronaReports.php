@@ -1,16 +1,17 @@
 <?php
 namespace SapiStudio\NovelCovid;
 use SapiStudio\FileDatabase\Handler as FileDatabase;
+use SapiStudio\FileSystem\Parsers\CsvParser;
+use \SapiStudio\Http\Browser\StreamClient;
 
 class Engine
 {
-
     protected $confirmed_url;
     protected $deaths_url;
     protected $recovered_url;
     protected $mainPathUrl;
-    protected $startPandemicDate = '2020-01-22';
     
+    /** Engine::__construct()*/
     public function __construct()
     {
         $this->mainPathUrl      = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/';
@@ -20,26 +21,52 @@ class Engine
         $this->recovered_url    = $this->mainPathUrl . 'time_series_19-covid-Recovered.csv';
     }
     
+    /** Engine::loadLocalDb()*/
     public static function loadLocalDb()
     {
-        return FileDatabase::load('coronareports', ['fields' => ['seo_url' => 'string']]);
+        return FileDatabase::load('coronareports',['fields'=>['coronaConfirmed'=>'integer','coronaDeaths'=>'integer','coronaRecovered'=>'integer','coronaCountry'=>'string','coronaDate'=>'string']]);
     }
     
-    /** Database::retrieveNews()*/
-    public static function retrieveNews($totalPicker = 5)
+    /** Engine::retrieveCountryReport()*/
+    public static function retrieveCountryReport($countryName = null)
     {
-        return json_decode(json_encode(self::getNewsDb()->randomPick($totalPicker)),true);
+        if(!$countryName)
+            throw new \Exception('Invalid country name');
+        return self::loadLocalDb()->query()->where('coronaCountry', '=', $countryName)->find()->toArray();
     }
     
-    /** Database::importNews()*/
-    public static function importReport($report = []){
-        return self::loadLocalDb()->addEntry($data);
-    }
-    
-    public function getData()
+    /** Engine::retrieveAllReports()*/
+    public static function retrieveAllReports()
     {
+        return self::loadLocalDb()->findAll()->toArray();
+    }
+    
+    /** Engine::dailyReports()*/
+    public static function dailyReports()
+    {
+        $corona = [];
+        foreach(self::loadLocalDb()->findAll()->groupArray('coronaDate') as $dateIndex=>$dateValues){
+            $corona[] = [
+                'date'      => $dateIndex,
+                'Confirmed' => array_sum(array_column($dateValues,'coronaConfirmed')),
+                'Deaths'    => array_sum(array_column($dateValues,'coronaDeaths')),
+                'Recovered' => array_sum(array_column($dateValues,'coronaRecovered'))
+            ];
+        }
+        return $corona;
+    }
+    
+    /** Engine::importReport()*/
+    public static function importReport(){
+        return (new self)->getAndInsertReports();
+    }
+    
+    /** Engine::getAndInsertReports()*/
+    private function getAndInsertReports()
+    {
+        self::loadLocalDb()->delete();
         foreach ([$this->confirmed_url, $this->deaths_url, $this->recovered_url] as $urlData) {
-            $fileLogData = (new \SapiStudio\FileSystem\Parsers\CsvParser(\SapiStudio\Http\Browser\StreamClient::make()->getPageContent($urlData)))->firstRowHeader();
+            $fileLogData = (new CsvParser(StreamClient::make()->getPageContent($urlData)))->firstRowHeader();
             foreach ($fileLogData->toArray() as $dataIndex => $dataLog) {
                 $country = $dataLog['Country/Region'];
                 unset($dataLog['Country/Region'], $dataLog['Province/State'], $dataLog['Lat'], $dataLog['Long']);
@@ -65,47 +92,16 @@ class Engine
             foreach ($countryData as $countryDate => $countryInsert) {
                 $countryInsert['coronaCountry'] = $countryName;
                 $countryInsert['coronaDate'] = $countryDate;
-                $org = $countryInsert;
+                $original = $countryInsert;
                 if (isset($last)) {
                     $countryInsert['coronaConfirmed'] = $countryInsert['coronaConfirmed'] - $last['coronaConfirmed'];
                     $countryInsert['coronaDeaths'] = $countryInsert['coronaDeaths'] - $last['coronaDeaths'];
                     $countryInsert['coronaRecovered'] = $countryInsert['coronaRecovered'] - $last['coronaRecovered'];
                 }
-                self::importReport($countryInsert);
-                $last = $org;
+                self::loadLocalDb()->addEntry($countryInsert);
+                $last = $original;
             }
         }
-    }
-
-    public function retrieveArchive()
-    {
-        $all = 0;
-        $period = new \DatePeriod(new \DateTime($this->startPandemicDate), new \DateInterval
-            ('P1D'), new \DateTime());
-        foreach ($period as $key => $value) {
-            $return[] = $this->archivePathUrl . $value->format('m-d-Y') . '.csv';
-            $contentCsv = \SapiStudio\Http\Browser\StreamClient::make()->getPageContent($this->
-                archivePathUrl . $value->format('m-d-Y') . '.csv');
-            $fileLogData = (new \SapiStudio\FileSystem\Parsers\CsvParser($contentCsv))->
-                firstRowHeader();
-            foreach ($fileLogData->toArray() as $dataIndex => $dataLog) {
-
-                $lastName = strtolower(str_replace(" ", "", $dataLog['CountryRegion'] . $dataLog['ProvinceState']));
-                $confirmed = $dataLog['Confirmed'] - (int)$lastLog[$lastName]['Confirmed'];
-                $deaths = $dataLog['Deaths'] - (int)$lastLog[$lastName]['Deaths'];
-                $recovered = $dataLog['Recovered'] - (int)$lastLog[$lastName]['Recovered'];
-                if (isset($dataLog['CountryRegion']) && $dataLog['CountryRegion'] != 'Mainland China') {
-                    $dsadas = ['coronaCountry' => $dataLog['CountryRegion'], 'coronaState' => $dataLog['ProvinceState'],
-                        'coronaConfirmed' => $confirmed, 'coronaDeaths' => $deaths, 'coronaRecovered' =>
-                        $recovered, 'coronaLastUpdate' => $dataLog['LastUpdate'], 'coronaDate' => $value->
-                        format('Y-m-d')];
-                    \CoronaMapper::make()->add($dsadas);
-                    $lastLog[$lastName] = $dataLog;
-                }
-            }
-            $total = count($fileLogData->toArray());
-            $all += $total;
-        }
-        return $return;
+        return $this;
     }
 }
