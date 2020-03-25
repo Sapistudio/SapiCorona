@@ -76,7 +76,7 @@ class Engine
                             $rowname = 'coronaDeaths';
                             break;
                     }
-                    $return[$indexRow][(new \DateTime($dataDate))->format('Y-m-d')]['coronaCountry'] = $historicalData['country'];
+                    $return[$indexRow][(new \DateTime($dataDate))->format('Y-m-d')]['coronaCountry'] = strtolower($historicalData['country']);
                     $return[$indexRow][(new \DateTime($dataDate))->format('Y-m-d')][$rowname] += $dataValue;
                     
                 }
@@ -103,7 +103,7 @@ class Engine
             }
         }
         foreach(json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/countries')) as $coronaIndex => $coronaData){
-            $coronaStat[$coronaData->country] = $coronaData;
+            $coronaStat[strtolower($coronaData->country)] = $coronaData;
         }
         $this->saveJson(['data'=>$parsed,'chart'=>$coronaChart,'countries' => $coronaStat]);
         return $this;
