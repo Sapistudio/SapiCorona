@@ -1,6 +1,6 @@
 <?php
 namespace SapiStudio\NovelCovid;
-use SapiStudio\FileDatabase\Handler as FileDatabase;
+use SapiStudio\FileSystem\Handler as FileSystem;
 use SapiStudio\FileSystem\Parsers\CsvParser;
 use \SapiStudio\Http\Browser\StreamClient;
 
@@ -19,41 +19,41 @@ class Engine
         $this->confirmed_url    = $this->mainPathUrl . 'time_series_19-covid-Confirmed.csv';
         $this->deaths_url       = $this->mainPathUrl . 'time_series_19-covid-Deaths.csv';
         $this->recovered_url    = $this->mainPathUrl . 'time_series_19-covid-Recovered.csv';
+        $this->setDir();
     }
     
-    /** Engine::loadLocalDb()*/
-    public static function loadLocalDb()
-    {
-        return FileDatabase::load('coronareports',['fields'=>['coronaConfirmed'=>'integer','coronaDeaths'=>'integer','coronaRecovered'=>'integer','coronaCountry'=>'string','coronaDate'=>'string']]);
+    /** Engine::setDir()*/
+    public function setDir(){
+        $dir = realpath(__DIR__).DIRECTORY_SEPARATOR.'json'.DIRECTORY_SEPARATOR;
+        if(!is_dir($dir))
+            mkdir($dir,0755,true);
+        $this->filePathJson = $dir.'coronareport.json';        
+        return $this;
     }
     
-    /** Engine::retrieveCountryReport()*/
-    public static function retrieveCountryReport($countryName = null)
+    /** Engine::loadJson()*/
+    public function loadJson()
     {
-        if(!$countryName)
-            throw new \Exception('Invalid country name');
-        return self::loadLocalDb()->query()->where('coronaCountry', '=', $countryName)->find()->toArray();
+        return FileSystem::loadJson($this->filePathJson);
     }
     
-    /** Engine::retrieveAllReports()*/
-    public static function retrieveAllReports()
+    /** Engine::saveJson()*/
+    public function saveJson($jsonData)
     {
-        return self::loadLocalDb()->findAll()->toArray();
+        return FileSystem::dumpJson($this->filePathJson,$jsonData);
     }
     
-    /** Engine::dailyReports()*/
-    public static function dailyReports()
+    /** Engine::countryReport()*/
+    public static function countryReport($countryName = '')
     {
-        $corona = [];
-        foreach(self::loadLocalDb()->findAll()->groupArray('coronaDate') as $dateIndex=>$dateValues){
-            $corona[] = [
-                'date'      => $dateIndex,
-                'Confirmed' => array_sum(array_column($dateValues,'coronaConfirmed')),
-                'Deaths'    => array_sum(array_column($dateValues,'coronaDeaths')),
-                'Recovered' => array_sum(array_column($dateValues,'coronaRecovered'))
-            ];
-        }
-        return $corona;
+        $stat = (new self)->loadJson()->countries;
+        return (isset($stat->$countryName)) ? $stat->$countryName : $stat;
+    }
+    
+    /** Engine::chartReports()*/
+    public static function chartReports()
+    {
+        return (new self)->loadJson()->chart;
     }
     
     /** Engine::importReport()*/
@@ -64,44 +64,47 @@ class Engine
     /** Engine::getAndInsertReports()*/
     private function getAndInsertReports()
     {
-        self::loadLocalDb()->delete();
-        foreach ([$this->confirmed_url, $this->deaths_url, $this->recovered_url] as $urlData) {
-            $fileLogData = (new CsvParser(StreamClient::make()->getPageContent($urlData)))->firstRowHeader();
-            foreach ($fileLogData->toArray() as $dataIndex => $dataLog) {
-                $country = $dataLog['Country/Region'];
-                unset($dataLog['Country/Region'], $dataLog['Province/State'], $dataLog['Lat'], $dataLog['Long']);
-                switch ($urlData) {
-                    case $this->confirmed_url:
-                        $rowname = 'coronaConfirmed';
-                        break;
-                    case $this->deaths_url:
-                        $rowname = 'coronaDeaths';
-                        break;
-                    case $this->recovered_url:
-                        $rowname = 'coronaRecovered';
-                        break;
-                }
-                foreach ($dataLog as $dataDate => $dataConfirmed) {
-                    $return[$country][(new \DateTime($dataDate))->format('Y-m-d')][$rowname] += $dataConfirmed;
+        $indexRow = 0;
+        foreach (json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/v2/historical'),true) as $historicalData) {
+            foreach ($historicalData['timeline'] as $dataType => $dataLog) {
+                foreach($dataLog as $dataDate => $dataValue){
+                    switch ($dataType) {
+                        case 'cases':
+                            $rowname = 'coronaConfirmed';
+                            break;
+                        case 'deaths':
+                            $rowname = 'coronaDeaths';
+                            break;
+                    }
+                    $return[$indexRow][(new \DateTime($dataDate))->format('Y-m-d')]['coronaCountry'] = $historicalData['country'];
+                    $return[$indexRow][(new \DateTime($dataDate))->format('Y-m-d')][$rowname] += $dataValue;
+                    
                 }
             }
+            $indexRow++;   
         }
-
-        foreach ($return as $countryName => $countryData) {
+        foreach ($return as $returnIndex => $countryData) {
             $last = null;
             foreach ($countryData as $countryDate => $countryInsert) {
-                $countryInsert['coronaCountry'] = $countryName;
                 $countryInsert['coronaDate'] = $countryDate;
                 $original = $countryInsert;
                 if (isset($last)) {
-                    $countryInsert['coronaConfirmed'] = $countryInsert['coronaConfirmed'] - $last['coronaConfirmed'];
-                    $countryInsert['coronaDeaths'] = $countryInsert['coronaDeaths'] - $last['coronaDeaths'];
-                    $countryInsert['coronaRecovered'] = $countryInsert['coronaRecovered'] - $last['coronaRecovered'];
+                    $countryInsert['coronaConfirmed']   = $countryInsert['coronaConfirmed'] - $last['coronaConfirmed'];
+                    $countryInsert['coronaDeaths']      = $countryInsert['coronaDeaths'] - $last['coronaDeaths'];
+                    $countryInsert['coronaRecovered']   = $countryInsert['coronaRecovered'] - $last['coronaRecovered'];
                 }
-                self::loadLocalDb()->addEntry($countryInsert);
-                $last = $original;
+                $parsed[]   = $countryInsert;
+                $coronaChart[$countryDate]['date'] =$countryDate;
+                $coronaChart[$countryDate]['Confirmed'] +=$countryInsert['coronaConfirmed'];
+                $coronaChart[$countryDate]['Deaths'] +=$countryInsert['coronaDeaths'];
+                $last       = $original;
             }
         }
+        
+        foreach(json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/countries')) as $coronaIndex => $coronaData){
+            $coronaStat[$coronaData->country] = $coronaData;
+        }
+        $this->saveJson(['data'=>$parsed,'chart'=>$coronaChart,'countries' => $coronaStat]);
         return $this;
     }
 }
