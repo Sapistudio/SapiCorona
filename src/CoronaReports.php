@@ -51,9 +51,9 @@ class Engine
     }
     
     /** Engine::chartReports()*/
-    public static function chartReports()
+    public static function chartReports($country = 'all')
     {
-        return (new self)->loadJson()->chart;
+        return (new self)->loadJson()->chart->$country;
     }
     
     /** Engine::importReport()*/
@@ -94,13 +94,14 @@ class Engine
                     $countryInsert['coronaRecovered']   = $countryInsert['coronaRecovered'] - $last['coronaRecovered'];
                 }
                 $parsed[]   = $countryInsert;
-                $coronaChart[$countryDate]['date'] =$countryDate;
-                $coronaChart[$countryDate]['Confirmed'] +=$countryInsert['coronaConfirmed'];
-                $coronaChart[$countryDate]['Deaths'] +=$countryInsert['coronaDeaths'];
-                $last       = $original;
+                foreach(['all',$countryInsert['coronaCountry']] as $type){
+                    $coronaChart[$type][$countryDate]['date'] =$countryDate;
+                    $coronaChart[$type][$countryDate]['Confirmed'] +=$countryInsert['coronaConfirmed'];
+                    $coronaChart[$type][$countryDate]['Deaths'] +=$countryInsert['coronaDeaths'];
+                }
+                $last = $original;
             }
         }
-        
         foreach(json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/countries')) as $coronaIndex => $coronaData){
             $coronaStat[$coronaData->country] = $coronaData;
         }
