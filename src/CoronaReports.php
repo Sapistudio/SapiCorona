@@ -75,10 +75,12 @@ class Engine
                         case 'deaths':
                             $rowname = 'coronaDeaths';
                             break;
+                        case 'recovered':
+                            $rowname = 'coronaRecovered';
+                            break;
                     }
-                    $return[$indexRow][(new \DateTime($dataDate))->format('Y-m-d')]['coronaCountry'] = strtolower($historicalData['country']);
-                    $return[$indexRow][(new \DateTime($dataDate))->format('Y-m-d')][$rowname] += $dataValue;
-                    
+                    $return[$indexRow][(new \DateTime($dataDate))->format('2020-m-d')]['coronaCountry'] = strtolower($historicalData['country']);
+                    $return[$indexRow][(new \DateTime($dataDate))->format('2020-m-d')][$rowname] += $dataValue;
                 }
             }
             $indexRow++;   
@@ -98,6 +100,7 @@ class Engine
                     $coronaChart[$type][$countryDate]['date'] =$countryDate;
                     $coronaChart[$type][$countryDate]['Confirmed'] +=$countryInsert['coronaConfirmed'];
                     $coronaChart[$type][$countryDate]['Deaths'] +=$countryInsert['coronaDeaths'];
+                    $coronaChart[$type][$countryDate]['Recovered'] +=$countryInsert['coronaRecovered'];
                 }
                 $last = $original;
             }
