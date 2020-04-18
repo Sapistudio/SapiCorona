@@ -65,7 +65,7 @@ class Engine
     private function getAndInsertReports()
     {
         $indexRow = 0;
-        foreach (json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/v2/historical'),true) as $historicalData) {
+        foreach (json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/v2/historical?lastdays=all'),true) as $historicalData) {
             foreach ($historicalData['timeline'] as $dataType => $dataLog) {
                 foreach($dataLog as $dataDate => $dataValue){
                     switch ($dataType) {
@@ -105,8 +105,15 @@ class Engine
                 $last = $original;
             }
         }
-        foreach(json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/countries')) as $coronaIndex => $coronaData){
+        foreach(json_decode(StreamClient::make()->getPageContent('https://corona.lmao.ninja/v2/countries')) as $coronaIndex => $coronaData){
             $coronaStat[strtolower($coronaData->country)] = $coronaData;
+        }
+        foreach($coronaChart as $countryName =>$countryChartData){
+            foreach($countryChartData as $chartDate => $chartStat){
+                if($chartStat['Confirmed']==0 && $chartStat['Deaths']==0 && $chartStat['Recovered']==0){
+                    unset($coronaChart[$countryName][$chartDate]);
+                }
+            }
         }
         $this->saveJson(['data'=>$parsed,'chart'=>$coronaChart,'countries' => $coronaStat]);
         return $this;
